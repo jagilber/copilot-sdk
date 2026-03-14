@@ -61,7 +61,7 @@ var builtinCommands = []SlashCommand{
 	{Name: "/clear", Description: "Clear the current conversation context"},
 	{Name: "/agent", Description: "Select or deselect a custom agent", Parameters: []SlashCommandParameter{
 		{Name: "action", Description: `"select" or "deselect"`, Required: true},
-		{Name: "agentSlug", Description: "Agent identifier (required for select)", Required: false},
+		{Name: "name", Description: "Agent identifier (required for select)", Required: false},
 	}},
 	{Name: "/review", Description: "Request a code review"},
 	{Name: "/sessions", Description: "List or manage sessions"},
@@ -251,7 +251,7 @@ func (s *Session) handleAgentCommand(ctx context.Context, args []string) (*Slash
 	}
 
 	if args[0] == "select" && len(args) >= 2 {
-		params := &rpc.SessionAgentSelectParams{AgentSlug: args[1]}
+		params := &rpc.SessionAgentSelectParams{Name: args[1]}
 		_, err := s.RPC.Agent.Select(ctx, params)
 		if err != nil {
 			return nil, fmt.Errorf("failed to select agent: %w", err)

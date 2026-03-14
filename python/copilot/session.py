@@ -808,9 +808,7 @@ class CopilotSession:
         """
         return _command_registry.list()
 
-    async def send_command(
-        self, command: str, args: list[str] | None = None
-    ) -> SlashCommandResult:
+    async def send_command(self, command: str, args: list[str] | None = None) -> SlashCommandResult:
         """
         Executes a slash command.
 
@@ -843,9 +841,7 @@ class CopilotSession:
 
         trimmed = command.strip()
         if not trimmed.startswith("/"):
-            raise ValueError(
-                'Invalid command: must start with "/" (e.g., "/help", "/model gpt-4")'
-            )
+            raise ValueError('Invalid command: must start with "/" (e.g., "/help", "/model gpt-4")')
 
         parsed = _command_registry.parse_command_line(trimmed)
         command_name = parsed.name  # type: ignore[union-attr]
@@ -898,12 +894,8 @@ class CopilotSession:
             return SlashCommandResult(
                 handled=True, method="rpc", output=f"Current model: {model_id}"
             )
-        await self.rpc.model.switch_to(
-            SessionModelSwitchToParams(model_id=args[0])
-        )
-        return SlashCommandResult(
-            handled=True, method="rpc", output=f"Model switched to {args[0]}"
-        )
+        await self.rpc.model.switch_to(SessionModelSwitchToParams(model_id=args[0]))
+        return SlashCommandResult(handled=True, method="rpc", output=f"Model switched to {args[0]}")
 
     async def _handle_compact_command(self) -> SlashCommandResult:
         """Route /compact to session.compaction.compact RPC."""
@@ -923,16 +915,14 @@ class CopilotSession:
         if args[0] == "select" and len(args) >= 2:
             from .generated.rpc import SessionAgentSelectParams
 
-            await self.rpc.agent.select(SessionAgentSelectParams(agent_slug=args[1]))
+            await self.rpc.agent.select(SessionAgentSelectParams(name=args[1]))
             return SlashCommandResult(
                 handled=True, method="rpc", output=f"Agent '{args[1]}' selected"
             )
 
         if args[0] == "deselect":
             await self.rpc.agent.deselect()
-            return SlashCommandResult(
-                handled=True, method="rpc", output="Agent deselected"
-            )
+            return SlashCommandResult(handled=True, method="rpc", output="Agent deselected")
 
         return await self._handle_passthrough_command("/agent", args)
 

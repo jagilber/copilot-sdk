@@ -50,7 +50,7 @@ public sealed class CommandRegistry
         new("/agent", "Select or deselect a custom agent",
         [
             new("action", "\"select\" or \"deselect\"", true),
-            new("agentSlug", "Agent identifier (required for select)", false)
+            new("name", "Agent identifier (required for select)", false)
         ]),
         new("/review", "Request a code review"),
         new("/sessions", "List or manage sessions"),

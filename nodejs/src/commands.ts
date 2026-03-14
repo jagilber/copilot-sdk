@@ -98,7 +98,7 @@ export const BUILTIN_COMMANDS: SlashCommand[] = [
                 required: true,
             },
             {
-                name: "agentSlug",
+                name: "name",
                 description: "Agent identifier (required for select)",
                 required: false,
             },

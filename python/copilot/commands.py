@@ -94,7 +94,7 @@ BUILTIN_COMMANDS: list[SlashCommand] = [
                 required=True,
             ),
             SlashCommandParameter(
-                name="agentSlug",
+                name="name",
                 description="Agent identifier (required for select)",
                 required=False,
             ),

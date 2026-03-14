@@ -178,7 +178,7 @@ describe("CopilotSession slash commands", () => {
         const result = await session.sendCommand("/agent", ["select", "my-agent"]);
         expect(result.handled).toBe(true);
         expect(result.method).toBe("rpc");
-        expect(spy).toHaveBeenCalledWith(expect.objectContaining({ agentSlug: "my-agent" }));
+        expect(spy).toHaveBeenCalledWith(expect.objectContaining({ name: "my-agent" }));
     });
 
     it("sendCommand() falls back to send() for unknown commands", async () => {

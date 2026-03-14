@@ -903,7 +903,7 @@ export class CopilotSession {
         }
 
         if (args[0] === "select" && args.length >= 2) {
-            await this.rpc.agent.select({ agentSlug: args[1] });
+            await this.rpc.agent.select({ name: args[1] });
             return { handled: true, method: "rpc", output: `Agent '${args[1]}' selected` };
         }
 
