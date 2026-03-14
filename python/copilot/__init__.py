@@ -5,6 +5,14 @@ JSON-RPC based SDK for programmatic control of GitHub Copilot CLI
 """
 
 from .client import CopilotClient
+from .commands import (
+    BUILTIN_COMMANDS,
+    CommandRegistry,
+    ParsedCommand,
+    SlashCommand,
+    SlashCommandParameter,
+    SlashCommandResult,
+)
 from .session import CopilotSession
 from .tools import define_tool
 from .types import (
@@ -46,6 +54,8 @@ __version__ = "0.1.0"
 
 __all__ = [
     "AzureProviderOptions",
+    "BUILTIN_COMMANDS",
+    "CommandRegistry",
     "CopilotClient",
     "CopilotSession",
     "ConnectionState",
@@ -61,6 +71,7 @@ __all__ = [
     "ModelCapabilities",
     "ModelInfo",
     "ModelPolicy",
+    "ParsedCommand",
     "PermissionHandler",
     "PermissionRequest",
     "PermissionRequestResult",
@@ -72,6 +83,9 @@ __all__ = [
     "SessionEvent",
     "SessionListFilter",
     "SessionMetadata",
+    "SlashCommand",
+    "SlashCommandParameter",
+    "SlashCommandResult",
     "StopError",
     "SubprocessConfig",
     "TelemetryConfig",

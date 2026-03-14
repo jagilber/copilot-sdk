@@ -7,10 +7,12 @@ conversation sessions with the Copilot CLI.
 
 import asyncio
 import inspect
+import json
 import threading
 from collections.abc import Callable
 from typing import Any, cast
 
+from .commands import CommandRegistry, SlashCommand, SlashCommandResult
 from .generated.rpc import (
     Kind,
     Level,
@@ -787,3 +789,160 @@ class CopilotSession:
             ephemeral=ephemeral,
         )
         await self.rpc.log(params)
+
+    def supported_commands(self) -> list[SlashCommand]:
+        """
+        Returns the list of supported slash commands.
+
+        Slash commands are special commands prefixed with "/" that perform
+        specific actions like switching models, compacting history, or
+        managing agents.
+
+        Returns:
+            A list of supported slash commands with their descriptions.
+
+        Example:
+            >>> commands = session.supported_commands()
+            >>> for cmd in commands:
+            ...     print(f"{cmd.name}: {cmd.description}")
+        """
+        return _command_registry.list()
+
+    async def send_command(
+        self, command: str, args: list[str] | None = None
+    ) -> SlashCommandResult:
+        """
+        Executes a slash command.
+
+        Commands with known RPC equivalents (e.g., /model, /compact, /agent) are
+        dispatched directly via the corresponding RPC method. Commands handled
+        locally (e.g., /help, /clear) are processed by the SDK. All other
+        commands are forwarded to the CLI as text prompts.
+
+        Args:
+            command: The slash command name (e.g., "/model") or full command
+                line (e.g., "/model gpt-4").
+            args: Optional arguments for the command. If the command string
+                already contains args, these are appended.
+
+        Returns:
+            A SlashCommandResult indicating how the command was handled.
+
+        Raises:
+            ValueError: If the command is empty or doesn't start with "/".
+
+        Example:
+            >>> await session.send_command("/model", ["gpt-4"])
+            >>> await session.send_command("/model gpt-4")
+            >>> await session.send_command("/compact")
+            >>> result = await session.send_command("/help")
+            >>> print(result.output)
+        """
+        if not command or not command.strip():
+            raise ValueError("Invalid command: command string cannot be empty")
+
+        trimmed = command.strip()
+        if not trimmed.startswith("/"):
+            raise ValueError(
+                'Invalid command: must start with "/" (e.g., "/help", "/model gpt-4")'
+            )
+
+        parsed = _command_registry.parse_command_line(trimmed)
+        command_name = parsed.name  # type: ignore[union-attr]
+        combined_args = list(parsed.args) + (args or [])  # type: ignore[union-attr]
+
+        if command_name == "/help":
+            return self._handle_help_command()
+        elif command_name == "/clear":
+            return self._handle_clear_command()
+        elif command_name == "/model":
+            return await self._handle_model_command(combined_args)
+        elif command_name == "/compact":
+            return await self._handle_compact_command()
+        elif command_name == "/agent":
+            return await self._handle_agent_command(combined_args)
+        else:
+            return await self._handle_passthrough_command(command_name, combined_args)
+
+    def _handle_help_command(self) -> SlashCommandResult:
+        """Generate help text listing all supported commands."""
+        commands = _command_registry.list()
+        lines = ["Available slash commands:", ""]
+        for cmd in commands:
+            line = f"  {cmd.name}"
+            if cmd.parameters:
+                param_str = " ".join(
+                    f"<{p.name}>" if p.required else f"[{p.name}]" for p in cmd.parameters
+                )
+                line += f" {param_str}"
+            line += f" — {cmd.description}"
+            lines.append(line)
+        return SlashCommandResult(handled=True, method="local", output="\n".join(lines))
+
+    def _handle_clear_command(self) -> SlashCommandResult:
+        """Handle /clear by signaling that context should be cleared."""
+        return SlashCommandResult(
+            handled=True,
+            method="local",
+            output=(
+                "Session context cleared. "
+                "Start a new session with create_session() for a fresh conversation."
+            ),
+        )
+
+    async def _handle_model_command(self, args: list[str]) -> SlashCommandResult:
+        """Route /model to session.model.switchTo RPC."""
+        if not args:
+            current = await self.rpc.model.get_current()
+            model_id = getattr(current, "model_id", "unknown")
+            return SlashCommandResult(
+                handled=True, method="rpc", output=f"Current model: {model_id}"
+            )
+        await self.rpc.model.switch_to(
+            SessionModelSwitchToParams(model_id=args[0])
+        )
+        return SlashCommandResult(
+            handled=True, method="rpc", output=f"Model switched to {args[0]}"
+        )
+
+    async def _handle_compact_command(self) -> SlashCommandResult:
+        """Route /compact to session.compaction.compact RPC."""
+        await self.rpc.compaction.compact()
+        return SlashCommandResult(
+            handled=True, method="rpc", output="Conversation history compacted"
+        )
+
+    async def _handle_agent_command(self, args: list[str]) -> SlashCommandResult:
+        """Route /agent to session.agent RPC methods."""
+        if not args or args[0] == "list":
+            agents = await self.rpc.agent.list()
+            return SlashCommandResult(
+                handled=True, method="rpc", output=json.dumps(agents, default=str)
+            )
+
+        if args[0] == "select" and len(args) >= 2:
+            from .generated.rpc import SessionAgentSelectParams
+
+            await self.rpc.agent.select(SessionAgentSelectParams(agent_slug=args[1]))
+            return SlashCommandResult(
+                handled=True, method="rpc", output=f"Agent '{args[1]}' selected"
+            )
+
+        if args[0] == "deselect":
+            await self.rpc.agent.deselect()
+            return SlashCommandResult(
+                handled=True, method="rpc", output="Agent deselected"
+            )
+
+        return await self._handle_passthrough_command("/agent", args)
+
+    async def _handle_passthrough_command(
+        self, command_name: str, args: list[str]
+    ) -> SlashCommandResult:
+        """Send unrecognized commands as text prompts to the CLI."""
+        prompt = f"{command_name} {' '.join(args)}" if args else command_name
+        await self.send({"prompt": prompt})
+        return SlashCommandResult(handled=True, method="passthrough")
+
+
+_command_registry = CommandRegistry()
