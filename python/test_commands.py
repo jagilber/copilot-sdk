@@ -1,8 +1,6 @@
 """Tests for slash command support in the Copilot SDK."""
 
-import pytest
-
-from copilot.commands import BUILTIN_COMMANDS, CommandRegistry, SlashCommandResult
+from copilot.commands import BUILTIN_COMMANDS, CommandRegistry
 
 
 class TestSlashCommandTypes:
