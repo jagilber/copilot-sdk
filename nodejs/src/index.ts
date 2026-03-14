@@ -11,6 +11,13 @@
 export { CopilotClient } from "./client.js";
 export { CopilotSession, type AssistantMessageEvent } from "./session.js";
 export { defineTool, approveAll } from "./types.js";
+export { CommandRegistry, BUILTIN_COMMANDS } from "./commands.js";
+export type {
+    SlashCommand,
+    SlashCommandParameter,
+    SlashCommandResult,
+    ParsedCommand,
+} from "./commands.js";
 export type {
     ConnectionState,
     CopilotClientOptions,

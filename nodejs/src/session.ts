@@ -11,6 +11,8 @@ import type { MessageConnection } from "vscode-jsonrpc/node.js";
 import { ConnectionError, ResponseError } from "vscode-jsonrpc/node.js";
 import { createSessionRpc } from "./generated/rpc.js";
 import { getTraceContext } from "./telemetry.js";
+import { CommandRegistry } from "./commands.js";
+import type { SlashCommand, SlashCommandResult } from "./commands.js";
 import type {
     MessageOptions,
     PermissionHandler,
@@ -33,6 +35,9 @@ import type {
 
 export const NO_RESULT_PERMISSION_V2_ERROR =
     "Permission handlers cannot return 'no-result' when connected to a protocol v2 server.";
+
+/** Shared command registry for slash command support */
+const commandRegistry = new CommandRegistry();
 
 /** Assistant message event - the final response from the assistant. */
 export type AssistantMessageEvent = Extract<SessionEvent, { type: "assistant.message" }>;
@@ -752,5 +757,172 @@ export class CopilotSession {
         options?: { level?: "info" | "warning" | "error"; ephemeral?: boolean }
     ): Promise<void> {
         await this.rpc.log({ message, ...options });
+    }
+
+    /**
+     * Returns the list of supported slash commands.
+     *
+     * Slash commands are special commands prefixed with "/" that perform
+     * specific actions like switching models, compacting history, or
+     * managing agents. Some commands are handled locally by the SDK,
+     * some map to existing RPC methods, and others are passed through
+     * to the CLI.
+     *
+     * @returns An array of supported slash commands with their descriptions
+     *
+     * @example
+     * ```typescript
+     * const commands = session.supportedCommands();
+     * for (const cmd of commands) {
+     *   console.log(`${cmd.name}: ${cmd.description}`);
+     * }
+     * ```
+     */
+    supportedCommands(): SlashCommand[] {
+        return commandRegistry.list();
+    }
+
+    /**
+     * Executes a slash command.
+     *
+     * Commands with known RPC equivalents (e.g., /model, /compact, /agent) are
+     * dispatched directly via the corresponding RPC method. Commands handled
+     * locally (e.g., /help, /clear) are processed by the SDK. All other
+     * commands are forwarded to the CLI as text prompts.
+     *
+     * @param command - The slash command name (e.g., "/model") or full command line (e.g., "/model gpt-4")
+     * @param args - Optional arguments for the command. If the command string already contains args, these are appended.
+     * @returns A promise that resolves with the command result
+     * @throws Error if the command is empty or doesn't start with "/"
+     *
+     * @example
+     * ```typescript
+     * // Switch model
+     * await session.sendCommand("/model", ["gpt-4"]);
+     *
+     * // Or pass as a single string
+     * await session.sendCommand("/model gpt-4");
+     *
+     * // Compact history
+     * await session.sendCommand("/compact");
+     *
+     * // Get help
+     * const result = await session.sendCommand("/help");
+     * console.log(result.output);
+     * ```
+     */
+    async sendCommand(command: string, args?: string[]): Promise<SlashCommandResult> {
+        if (!command || !command.trim()) {
+            throw new Error("Invalid command: command string cannot be empty");
+        }
+
+        const trimmed = command.trim();
+        if (!trimmed.startsWith("/")) {
+            throw new Error('Invalid command: must start with "/" (e.g., "/help", "/model gpt-4")');
+        }
+
+        // Parse command line — handle both "/model gpt-4" and "/model", ["gpt-4"]
+        const parsed = commandRegistry.parseCommandLine(trimmed);
+        const commandName = parsed!.name;
+        const combinedArgs = [...parsed!.args, ...(args ?? [])];
+
+        // Route to appropriate handler
+        switch (commandName) {
+            case "/help":
+                return this._handleHelpCommand();
+
+            case "/clear":
+                return this._handleClearCommand();
+
+            case "/model":
+                return this._handleModelCommand(combinedArgs);
+
+            case "/compact":
+                return this._handleCompactCommand();
+
+            case "/agent":
+                return this._handleAgentCommand(combinedArgs);
+
+            default:
+                return this._handlePassthroughCommand(commandName, combinedArgs);
+        }
+    }
+
+    /** @internal Generates help text listing all supported commands. */
+    private _handleHelpCommand(): SlashCommandResult {
+        const commands = commandRegistry.list();
+        const lines = ["Available slash commands:", ""];
+        for (const cmd of commands) {
+            let line = `  ${cmd.name}`;
+            if (cmd.parameters && cmd.parameters.length > 0) {
+                const paramStr = cmd.parameters
+                    .map((p) => (p.required ? `<${p.name}>` : `[${p.name}]`))
+                    .join(" ");
+                line += ` ${paramStr}`;
+            }
+            line += ` — ${cmd.description}`;
+            lines.push(line);
+        }
+        return { handled: true, method: "local", output: lines.join("\n") };
+    }
+
+    /** @internal Handles /clear by signaling that context should be cleared. */
+    private _handleClearCommand(): SlashCommandResult {
+        return {
+            handled: true,
+            method: "local",
+            output: "Session context cleared. Start a new session with createSession() for a fresh conversation.",
+        };
+    }
+
+    /** @internal Routes /model to session.model.switchTo RPC. */
+    private async _handleModelCommand(args: string[]): Promise<SlashCommandResult> {
+        if (args.length === 0) {
+            const current = await this.rpc.model.getCurrent();
+            return {
+                handled: true,
+                method: "rpc",
+                output: `Current model: ${(current as { modelId?: string }).modelId ?? "unknown"}`,
+            };
+        }
+        await this.rpc.model.switchTo({ modelId: args[0] });
+        return { handled: true, method: "rpc", output: `Model switched to ${args[0]}` };
+    }
+
+    /** @internal Routes /compact to session.compaction.compact RPC. */
+    private async _handleCompactCommand(): Promise<SlashCommandResult> {
+        await this.rpc.compaction.compact();
+        return { handled: true, method: "rpc", output: "Conversation history compacted" };
+    }
+
+    /** @internal Routes /agent to session.agent.select/deselect RPC. */
+    private async _handleAgentCommand(args: string[]): Promise<SlashCommandResult> {
+        if (args.length === 0 || args[0] === "list") {
+            const agents = await this.rpc.agent.list();
+            return { handled: true, method: "rpc", output: JSON.stringify(agents) };
+        }
+
+        if (args[0] === "select" && args.length >= 2) {
+            await this.rpc.agent.select({ name: args[1] });
+            return { handled: true, method: "rpc", output: `Agent '${args[1]}' selected` };
+        }
+
+        if (args[0] === "deselect") {
+            await this.rpc.agent.deselect();
+            return { handled: true, method: "rpc", output: "Agent deselected" };
+        }
+
+        // Unknown agent subcommand — pass through
+        return this._handlePassthroughCommand("/agent", args);
+    }
+
+    /** @internal Sends unrecognized commands as text prompts to the CLI. */
+    private async _handlePassthroughCommand(
+        commandName: string,
+        args: string[]
+    ): Promise<SlashCommandResult> {
+        const prompt = args.length > 0 ? `${commandName} ${args.join(" ")}` : commandName;
+        await this.send({ prompt });
+        return { handled: true, method: "passthrough" };
     }
 }
