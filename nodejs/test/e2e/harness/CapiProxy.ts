@@ -13,6 +13,7 @@ export class CapiProxy {
         const serverProcess = spawn("npx", ["tsx", HARNESS_SERVER_PATH], {
             stdio: ["ignore", "pipe", "inherit"],
             shell: true,
+            windowsHide: true,
         });
 
         this.proxyUrl = await new Promise<string>((resolve) => {
